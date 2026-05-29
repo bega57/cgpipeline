@@ -26,8 +26,9 @@ public class Main extends Application {
     private final static int SCENE_WIDTH  = VIEW_WIDTH * 2;
     private final static int SCENE_HEIGHT = VIEW_HEIGHT * 2;
 
-    private final static boolean USE_PUSH_PIPELINE = true;
-    
+    private final static boolean USE_PUSH_PIPELINE = true; // Push-Pipeline
+    //private final static boolean USE_PUSH_PIPELINE = false; // Pull-Pipeline
+
     @Override
     public void start(Stage stage) throws IOException {
         File f = new File("resources/teapot.obj");
