@@ -2,54 +2,68 @@ package at.fhv.sysarch.lab3.pipeline;
 
 import at.fhv.sysarch.lab3.animation.AnimationRenderer;
 import at.fhv.sysarch.lab3.obj.Model;
+import at.fhv.sysarch.lab3.pipeline.pull.*;
+import com.hackoeur.jglm.Mat4;
+import com.hackoeur.jglm.Matrices;
 import javafx.animation.AnimationTimer;
 
 public class PullPipelineFactory {
     public static AnimationTimer createPipeline(PipelineData pd) {
-        // TODO: pull from the source (model)
 
-        // TODO 1. perform model-view transformation from model to VIEW SPACE coordinates
+        // source: provides faces from the model
+        ModelSource source = new ModelSource();
 
-        // TODO 2. perform backface culling in VIEW SPACE
+        // 1. model-view transformation
+        ModelViewTransformFilter modelViewFilter = new ModelViewTransformFilter();
+        modelViewFilter.setPredecessor(source);
 
-        // TODO 3. perform depth sorting in VIEW SPACE
+        // 2. backface culling in view space
+        BackfaceCullingFilter backfaceCullingFilter = new BackfaceCullingFilter();
+        backfaceCullingFilter.setPredecessor(modelViewFilter);
 
-        // TODO 4. add coloring (space unimportant)
+        // 3. depth sorting: NOT possible in pull pipeline (can't collect all before sorting)
 
-        // lighting can be switched on/off
+        // 4. coloring
+        ColoringFilter coloringFilter = new ColoringFilter(pd.getModelColor());
+        coloringFilter.setPredecessor(backfaceCullingFilter);
+
+        // 5. projection transformation (with optional lighting before it)
+        ProjectionTransformFilter projectionFilter = new ProjectionTransformFilter(pd.getProjTransform());
+
         if (pd.isPerformLighting()) {
-            // 4a. TODO perform lighting in VIEW SPACE
-            
-            // 5. TODO perform projection transformation on VIEW SPACE coordinates
+            LightingFilter lightingFilter = new LightingFilter(pd.getLightPos());
+            lightingFilter.setPredecessor(coloringFilter);
+            projectionFilter.setPredecessor(lightingFilter);
         } else {
-            // 5. TODO perform projection transformation
+            projectionFilter.setPredecessor(coloringFilter);
         }
 
-        // TODO 6. perform perspective division to screen coordinates
+        // 6. perspective division + viewport
+        ScreenSpaceTransformFilter screenSpaceFilter = new ScreenSpaceTransformFilter(pd.getViewportTransform());
+        screenSpaceFilter.setPredecessor(projectionFilter);
 
-        // TODO 7. feed into the sink (renderer)
+        // 7. renderer sink
+        RendererSink renderer = new RendererSink(pd.getGraphicsContext(), pd.getRenderingMode());
+        renderer.setSource(screenSpaceFilter);
 
-        // returning an animation renderer which handles clearing of the
-        // viewport and computation of the praction
         return new AnimationRenderer(pd) {
-            // TODO rotation variable goes in here
+            private float rotationAngle = 0;
 
-            /** This method is called for every frame from the JavaFX Animation
-             * system (using an AnimationTimer, see AnimationRenderer). 
-             * @param fraction the time which has passed since the last render call in a fraction of a second
-             * @param model    the model to render 
-             */
             @Override
             protected void render(float fraction, Model model) {
-                // TODO compute rotation in radians
+                rotationAngle += fraction;
 
-                // TODO create new model rotation matrix using pd.getModelRotAxis and Matrices.rotate
+                Mat4 rotationMatrix = Matrices.rotate(rotationAngle, pd.getModelRotAxis());
+                Mat4 modelMatrix = pd.getModelTranslation().multiply(rotationMatrix);
+                Mat4 modelViewMatrix = pd.getViewTransform().multiply(modelMatrix);
 
-                // TODO compute updated model-view tranformation
+                modelViewFilter.setModelViewMatrix(modelViewMatrix);
 
-                // TODO update model-view filter
+                // reset the source with faces for this frame
+                source.setFaces(model.getFaces());
 
-                // TODO trigger rendering of the pipeline
+                // the sink pulls everything through the pipeline
+                renderer.render();
             }
         };
     }

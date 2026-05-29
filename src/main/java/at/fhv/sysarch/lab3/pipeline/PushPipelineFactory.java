@@ -1,57 +1,83 @@
 package at.fhv.sysarch.lab3.pipeline;
 
 import at.fhv.sysarch.lab3.animation.AnimationRenderer;
+import at.fhv.sysarch.lab3.obj.Face;
 import at.fhv.sysarch.lab3.obj.Model;
+import at.fhv.sysarch.lab3.pipeline.push.*;
+import com.hackoeur.jglm.Mat4;
+import com.hackoeur.jglm.Matrices;
 import javafx.animation.AnimationTimer;
 
 public class PushPipelineFactory {
     public static AnimationTimer createPipeline(PipelineData pd) {
-        // TODO: push from the source (model)
 
-        // TODO 1. perform model-view transformation from model to VIEW SPACE coordinates
+        // 1. model-view transformation
+        ModelViewTransformFilter modelViewFilter = new ModelViewTransformFilter();
 
-        // TODO 2. perform backface culling in VIEW SPACE
+        // 2. backface culling in view space
+        BackfaceCullingFilter backfaceCullingFilter = new BackfaceCullingFilter();
 
-        // TODO 3. perform depth sorting in VIEW SPACE
+        // 3. depth sorting in view space (only possible in push pipeline)
+        DepthSortingFilter depthSortingFilter = new DepthSortingFilter();
 
-        // TODO 4. add coloring (space unimportant)
+        // 4. coloring
+        ColoringFilter coloringFilter = new ColoringFilter(pd.getModelColor());
 
-        // lighting can be switched on/off
+        // 5. projection transformation
+        ProjectionTransformFilter projectionFilter = new ProjectionTransformFilter(pd.getProjTransform());
+
+        // 6. perspective division + viewport
+        ScreenSpaceTransformFilter screenSpaceFilter = new ScreenSpaceTransformFilter(pd.getViewportTransform());
+
+        // 7. renderer sink
+        RendererSink renderer = new RendererSink(pd.getGraphicsContext(), pd.getRenderingMode());
+
+        // wire up the pipeline
+        modelViewFilter.setSuccessor(backfaceCullingFilter);
+        backfaceCullingFilter.setSuccessor(depthSortingFilter);
+
         if (pd.isPerformLighting()) {
-            // 4a. TODO perform lighting in VIEW SPACE
-            
-            // 5. TODO perform projection transformation on VIEW SPACE coordinates
+            // with lighting: coloring → lighting → projection
+            LightingFilter lightingFilter = new LightingFilter(pd.getLightPos());
+            depthSortingFilter.setSuccessor(coloringFilter);
+            coloringFilter.setSuccessor(lightingFilter);
+            lightingFilter.setSuccessor(projectionFilter);
         } else {
-            // 5. TODO perform projection transformation
+            // without lighting: coloring → projection
+            depthSortingFilter.setSuccessor(coloringFilter);
+            coloringFilter.setSuccessor(projectionFilter);
         }
 
-        // TODO 6. perform perspective division to screen coordinates
+        projectionFilter.setSuccessor(screenSpaceFilter);
+        screenSpaceFilter.setSuccessor(renderer);
 
-        // TODO 7. feed into the sink (renderer)
-
-        // returning an animation renderer which handles clearing of the
-        // viewport and computation of the praction
         return new AnimationRenderer(pd) {
-            // TODO rotation variable goes in here
+            private float rotationAngle = 0;
 
-            /** This method is called for every frame from the JavaFX Animation
-             * system (using an AnimationTimer, see AnimationRenderer). 
-             * @param fraction the time which has passed since the last render call in a fraction of a second
-             * @param model    the model to render 
-             */
             @Override
             protected void render(float fraction, Model model) {
+                // accumulate rotation (radians), frame-independent
+                rotationAngle += fraction;
 
-                // TODO compute rotation in radians
+                // create rotation matrix around Y axis
+                Mat4 rotationMatrix = Matrices.rotate(rotationAngle, pd.getModelRotAxis());
 
-                // TODO create new model rotation matrix using pd.modelRotAxis
+                // model matrix = translation * rotation (order matters!)
+                Mat4 modelMatrix = pd.getModelTranslation().multiply(rotationMatrix);
 
-                // TODO compute updated model-view tranformation
+                // model-view = view * model
+                Mat4 modelViewMatrix = pd.getViewTransform().multiply(modelMatrix);
 
-                // TODO update model-view filter
+                // update the filter with the new matrix
+                modelViewFilter.setModelViewMatrix(modelViewMatrix);
 
-                // TODO trigger rendering of the pipeline
+                // push all faces through the pipeline
+                for (Face face : model.getFaces()) {
+                    modelViewFilter.push(face);
+                }
 
+                // flush the depth sorting buffer (sorts and pushes downstream)
+                depthSortingFilter.flush();
             }
         };
     }
